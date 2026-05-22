@@ -1,0 +1,2043 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 11
+            }
+          ]
+        }
+      },
+      "id": "a099e8c1-65cc-4391-86ed-8084bf02349e",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -3088,
+        592
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1vogVrOWPyUQqwsR14qExrOULFmm-sy_-elD3ZNa0h8I",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1258521478,
+          "mode": "list",
+          "cachedResultName": "Config",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1vogVrOWPyUQqwsR14qExrOULFmm-sy_-elD3ZNa0h8I/edit#gid=1258521478"
+        },
+        "options": {}
+      },
+      "id": "9da0bfd4-0c05-4aa8-bf08-cabbca1a7a15",
+      "name": "Read Config",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -2896,
+        592
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ofSXLwCeUOtdtlJR",
+          "name": "manymangoes"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = items.map(i => i.json);\n\nfunction getRow(rows, rowNum) {\n  const r = rows.find(x => x.row_number === rowNum);\n  return r ? (r['col_2'] || r['B'] || '') : '';\n}\n\n// -- Core config --\nconst config = {\n  apiKey:          String(getRow(rows, 4)),\n  assistantId:     String(getRow(rows, 5)),\n  batchSize:       parseInt(getRow(rows, 6))  || 10,\n  maxDuration:     parseInt(getRow(rows, 7))  || 10,\n  concurrentCalls: parseInt(getRow(rows, 8))  || 1,\n  pollIntervalMin: parseInt(getRow(rows, 9))  || 2,\n  maxAttempts:     parseInt(getRow(rows, 10)) || 10,\n  maxPerSlot:      parseInt(getRow(rows, 11)) || 2,\n};\n\n// -- Caller phone numbers map (rows 25-34) --\n// Each row: CONFIGURATION = Label, col_2 = Phone Number, col_3 = Vapi Phone Number ID\n// Build: callerPhoneNumbers array + areaCodeMap for matching\nconst callerPhoneRows = rows.filter(r => r.row_number >= 25 && r.row_number <= 34);\nconst callerPhoneNumbers = [];\nconst areaCodeMap = {};\n\nfor (const r of callerPhoneRows) {\n  const label   = String(r['CONFIGURATION'] || r['A'] || '').trim();\n  const phoneNum = String(r['col_2'] || r['B'] || '').trim();\n  const vapiId   = String(r['col_3'] || r['C'] || '').trim();\n  if (!vapiId || !phoneNum) continue;\n  callerPhoneNumbers.push({ label, phoneNumber: phoneNum, vapiPhoneNumberId: vapiId });\n  // Extract area code: strip non-digits, skip country code if 11 digits\n  const digits = phoneNum.replace(/\\D/g, '');\n  const areaCode = digits.length === 11 ? digits.substring(1, 4) : digits.substring(0, 3);\n  if (areaCode) areaCodeMap[areaCode] = vapiId;\n}\n\n// Default fallback = row 12 (\"Vapi Phone Number ID\") — explicit config value\n// Falls back to first in list if row 12 is empty\nconst defaultPhoneNumberId = String(getRow(rows, 12)).trim() ||\n  (callerPhoneNumbers.length > 0 ? callerPhoneNumbers[0].vapiPhoneNumberId : '');\n\n// -- Time slot logic (Eastern Time) --\nconst now = new Date();\nconst etStr = now.toLocaleString('en-US', { timeZone: 'America/New_York' });\nconst etHour = new Date(etStr).getHours();\n\nconst slots = [\n  { name: '8am-10am',  startHour: 8,  endHour: 10, col: 'D' },\n  { name: '10am-12pm', startHour: 10, endHour: 12, col: 'E' },\n  { name: '12pm-2pm',  startHour: 12, endHour: 14, col: 'F' },\n  { name: '2pm-4pm',   startHour: 14, endHour: 16, col: 'G' },\n  { name: '4pm-6pm',   startHour: 16, endHour: 18, col: 'H' },\n];\n\nconst currentSlot = slots.find(s => etHour >= s.startHour && etHour < s.endHour) || null;\n\nconst etDate = new Date(etStr);\nconst todayDateStr = etDate.getFullYear() + '-' +\n  String(etDate.getMonth() + 1).padStart(2, '0') + '-' +\n  String(etDate.getDate()).padStart(2, '0');\n\nreturn [{\n  json: {\n    config,\n    callerPhoneNumbers,\n    areaCodeMap,\n    defaultPhoneNumberId,\n    currentSlot,\n    todayDateStr,\n    etHour,\n    withinHours: currentSlot !== null\n  }\n}];"
+      },
+      "id": "8a6c06c7-312b-445c-8937-0023a7375d0e",
+      "name": "Extract Config Values",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2688,
+        592
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.withinHours }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "id": "ae28f630-b8e9-4c43-9285-38ba6ddce592"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "bfa7ef0b-6927-44a9-836d-d518c6b091b1",
+      "name": "Within Calling Hours?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -2496,
+        592
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "mode": "id",
+          "value": "1vogVrOWPyUQqwsR14qExrOULFmm-sy_-elD3ZNa0h8I"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2141969193,
+          "mode": "list",
+          "cachedResultName": "Numbers",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1hV49ALbkL0CSV1J5jEki0J45ohziRFxI4gww-aUhDRI/edit#gid=2141969193"
+        },
+        "options": {}
+      },
+      "id": "8713fa41-d663-433b-998d-bd3e6b1431b2",
+      "name": "Read Numbers Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -2208,
+        768
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ofSXLwCeUOtdtlJR",
+          "name": "manymangoes"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "mode": "id",
+          "value": "1vogVrOWPyUQqwsR14qExrOULFmm-sy_-elD3ZNa0h8I"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2075355757,
+          "mode": "list",
+          "cachedResultName": "ManyMangos Pick for MM(Sheet1)",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1hV49ALbkL0CSV1J5jEki0J45ohziRFxI4gww-aUhDRI/edit#gid=2075355757"
+        },
+        "options": {}
+      },
+      "id": "d443af56-f0c1-49eb-962a-88bcc3b6bb81",
+      "name": "Read ManyMangos Pick",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -2208,
+        416
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ofSXLwCeUOtdtlJR",
+          "name": "manymangoes"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Input 0 = Read ManyMangos Pick  (has 'Mobile Phone Number' + 'Contact ID')\n// Input 1 = Read Numbers Sheet     (has 'Phone Number')\n// Read by input index to avoid misclassification by column names\n\nconst pickItems   = $input.all(0).map(i => i.json);\nconst numberItems = $input.all(1).map(i => i.json);\n\n// Normalise: strip spaces, dashes, dots, parens, plus signs\nfunction normalise(p) {\n  return String(p || '').trim().replace(/[\\s\\-().+]/g, '');\n}\n\n// Build set of existing phone numbers from the Numbers sheet\nconst existingNumbers = new Set(\n  numberItems\n    .map(r => normalise(r['Phone Number']))\n    .filter(Boolean)\n);\n\n// Find pick contacts whose mobile number isn't already in the Numbers sheet\nconst seen = new Set();\nconst newContacts = pickItems.filter(r => {\n  const phone = normalise(r['Mobile Phone Number']);\n  if (!phone) return false;\n  if (existingNumbers.has(phone)) return false;  // already tracked\n  if (seen.has(phone)) return false;             // deduplicate within pick list\n  seen.add(phone);\n  return true;\n});\n\nreturn [{ json: { newContacts, newCount: newContacts.length } }];"
+      },
+      "id": "b877cb45-bf6f-447c-a061-c909f01184b2",
+      "name": "Sync New Numbers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1712,
+        592
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const { newContacts } = items[0].json;\nreturn newContacts.map(c => ({\n  json: {\n    'Phone Number': String(c['Mobile Phone Number'] || c['C'] || '').trim(),\n    'Status': '',\n    'Answered In Slot': '',\n    '8am-10am': '',\n    '10am-12pm': '',\n    '12pm-2pm': '',\n    '2pm-4pm': '',\n    '4pm-6pm': '',\n    'Total Attempts': '',\n    'Last Call ID': '',\n    'Last Duration (s)': '',\n    'Last Transcript': '',\n    'Last Classification': '',\n    'Last Called At': '',\n    'Recording URL': '',\n    'Answered At': ''\n  }\n}));"
+      },
+      "id": "9be03d09-048e-4b64-af0d-b3dc0ecfdffa",
+      "name": "Split New Contacts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1328,
+        464
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "mode": "id",
+          "value": "1vogVrOWPyUQqwsR14qExrOULFmm-sy_-elD3ZNa0h8I"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Numbers"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Phone Number": "={{ $json['Phone Number'] }}",
+            "Status": "={{ $json['Status'] }}",
+            "Answered In Slot": "={{ $json['Answered In Slot'] }}",
+            "8am-10am": "={{ $json['8am-10am'] }}",
+            "10am-12pm": "={{ $json['10am-12pm'] }}",
+            "12pm-2pm": "={{ $json['12pm-2pm'] }}",
+            "2pm-4pm": "={{ $json['2pm-4pm'] }}",
+            "4pm-6pm": "={{ $json['4pm-6pm'] }}",
+            "Total Attempts": "={{ $json['Total Attempts'] }}",
+            "Last Call ID": "={{ $json['Last Call ID'] }}",
+            "Last Duration (s)": "={{ $json['Last Duration (s)'] }}",
+            "Last Transcript": "={{ $json['Last Transcript'] }}",
+            "Last Classification": "={{ $json['Last Classification'] }}",
+            "Last Called At": "={{ $json['Last Called At'] }}",
+            "Recording URL": "={{ $json['Recording URL'] }}",
+            "Answered At": "={{ $json['Answered At'] }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Phone Number",
+              "displayName": "Phone Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Answered In Slot",
+              "displayName": "Answered In Slot",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "8am-10am",
+              "displayName": "8am-10am",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "10am-12pm",
+              "displayName": "10am-12pm",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "12pm-2pm",
+              "displayName": "12pm-2pm",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "2pm-4pm",
+              "displayName": "2pm-4pm",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "4pm-6pm",
+              "displayName": "4pm-6pm",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Total Attempts",
+              "displayName": "Total Attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Call ID",
+              "displayName": "Last Call ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Duration (s)",
+              "displayName": "Last Duration (s)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Transcript",
+              "displayName": "Last Transcript",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Classification",
+              "displayName": "Last Classification",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Called At",
+              "displayName": "Last Called At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Recording URL",
+              "displayName": "Recording URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Answered At",
+              "displayName": "Answered At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "fe327cf9-f7f7-429b-a4ef-b222096b33d3",
+      "name": "Append to Numbers Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -1120,
+        464
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ofSXLwCeUOtdtlJR",
+          "name": "manymangoes"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "26bb1dca-9732-48d9-97ca-44e5675c684d",
+              "leftValue": "={{ $json.newCount }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1488,
+        592
+      ],
+      "id": "1f889c0c-4650-4b2a-878a-095650a38cbe",
+      "name": "If"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -1904,
+        592
+      ],
+      "id": "4717719d-b907-4cdc-b350-58bbbc16350a",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "const configData = $('Extract Config Values').first().json;\nlet { config, currentSlot, todayDateStr } = configData;\n\nif (!currentSlot) {\n  // Outside calling hours — use first slot as fallback so testing works at any time\n  currentSlot = { name: '8am-10am', startHour: 8, endHour: 10, col: 'D' };\n}\n\nconst slotColMap = {\n  'D': '8am-10am',\n  'E': '10am-12pm',\n  'F': '12pm-2pm',\n  'G': '2pm-4pm',\n  'H': '4pm-6pm'\n};\n\nconst slotHeader = slotColMap[currentSlot.col];\n\nconst allRows = items.map((item, idx) => ({\n  ...item.json,\n  _rowIndex: idx + 2\n}));\n\nconst eligible = [];\n\nconst skipped = {\n  done: 0,\n  calledToday: 0,\n  maxAttempts: 0,\n  slotFull: 0,\n  inProgress: 0\n};\n\nfor (const row of allRows) {\n\n  const phone = String(row['Phone Number'] || '').trim();\n\n  if (!phone) continue;\n\n  const status = String(row['Status'] || '').trim();\n  const totalAttempts = parseInt(row['Total Attempts']) || 0;\n  const slotAttempts = parseInt(row[slotHeader]) || 0;\n  const lastCalledAt = row['Last Called At'] || '';\n\n  if (['Human Answered', 'Dead', 'Needs Review'].includes(status)) {\n    skipped.done++;\n    continue;\n  }\n\n  if (status === 'In Progress') {\n    skipped.inProgress++;\n    continue;\n  }\n\n  if (lastCalledAt) {\n    const lastDate = new Date(lastCalledAt);\n\n    const lastET = new Date(\n      lastDate.toLocaleString('en-US', {\n        timeZone: 'America/New_York'\n      })\n    );\n\n    const lastStr =\n      lastET.getFullYear() + '-' +\n      String(lastET.getMonth() + 1).padStart(2, '0') + '-' +\n      String(lastET.getDate()).padStart(2, '0');\n\n    if (lastStr === todayDateStr) {\n      skipped.calledToday++;\n      continue;\n    }\n  }\n\n  if (totalAttempts >= config.maxAttempts) {\n    skipped.maxAttempts++;\n    continue;\n  }\n\n  if (slotAttempts >= config.maxPerSlot) {\n    skipped.slotFull++;\n    continue;\n  }\n\n  if (!['Pending', 'Retry', ''].includes(status)) {\n    continue;\n  }\n\n  if (eligible.length < config.batchSize) {\n\n    // Ensure E.164 format: add + if missing\n    const e164Phone = phone.startsWith('+')\n      ? phone\n      : '+' + phone;\n\n    eligible.push({\n      phone_number: e164Phone,\n      _rowIndex: row._rowIndex,\n      _totalAttempts: totalAttempts,\n      _slotAttempts: slotAttempts,\n      _slotHeader: slotHeader\n    });\n  }\n}\n\n// Always use default phone number ID\nconst defaultPhoneNumberId = configData.defaultPhoneNumberId || '';\n\neligible.forEach(e => {\n  e.callerPhoneNumberId = defaultPhoneNumberId;\n});\n\nreturn [{\n  json: {\n    eligible,\n    skipped,\n    currentSlot,\n    config,\n    todayDateStr,\n    hasEligible: eligible.length > 0\n  }\n}];\n\n\n\n\n\n\n\n\n\n// const configData = $('Extract Config Values').first().json;\n// let { config, currentSlot, todayDateStr } = configData;\n// if (!currentSlot) {\n//   // Outside calling hours — use first slot as fallback so testing works at any time\n//   currentSlot = { name: '8am-10am', startHour: 8, endHour: 10, col: 'D' };\n// }\n// const slotColMap = { 'D': '8am-10am', 'E': '10am-12pm', 'F': '12pm-2pm', 'G': '2pm-4pm', 'H': '4pm-6pm' };\n// const slotHeader = slotColMap[currentSlot.col];\n// const allRows = items.map((item, idx) => ({ ...item.json, _rowIndex: idx + 2 }));\n// const eligible = [];\n// const skipped = { done: 0, calledToday: 0, maxAttempts: 0, slotFull: 0, inProgress: 0 };\n// for (const row of allRows) {\n//   const phone = String(row['Phone Number'] || '').trim();\n//   if (!phone) continue;\n//   const status = String(row['Status'] || '').trim();\n//   const totalAttempts = parseInt(row['Total Attempts']) || 0;\n//   const slotAttempts = parseInt(row[slotHeader]) || 0;\n//   const lastCalledAt = row['Last Called At'] || '';\n//   if (['Human Answered', 'Dead', 'Needs Review'].includes(status)) { skipped.done++; continue; }\n//   if (status === 'In Progress') { skipped.inProgress++; continue; }\n//   if (lastCalledAt) {\n//     const lastDate = new Date(lastCalledAt);\n//     const lastET = new Date(lastDate.toLocaleString('en-US', { timeZone: 'America/New_York' }));\n//     const lastStr = lastET.getFullYear() + '-' + String(lastET.getMonth()+1).padStart(2,'0') + '-' + String(lastET.getDate()).padStart(2,'0');\n//     if (lastStr === todayDateStr) { skipped.calledToday++; continue; }\n//   }\n//   if (totalAttempts >= config.maxAttempts) { skipped.maxAttempts++; continue; }\n//   if (slotAttempts >= config.maxPerSlot) { skipped.slotFull++; continue; }\n//   if (!['Pending', 'Retry', ''].includes(status)) continue;\n//   if (eligible.length < config.batchSize) {\n//     // Ensure E.164 format: add + if missing\n//     const e164Phone = phone.startsWith('+') ? phone : '+' + phone;\n//     eligible.push({ phone_number: e164Phone, _rowIndex: row._rowIndex, _totalAttempts: totalAttempts, _slotAttempts: slotAttempts, _slotHeader: slotHeader });\n//   }\n// }\n\n// // -- Round-robin assign caller phone number IDs --\n// // Pull caller numbers from Extract Config Values output\n// const callerPhoneNumbers = configData.callerPhoneNumbers || [];\n// const defaultPhoneNumberId = configData.defaultPhoneNumberId || '';\n\n// if (callerPhoneNumbers.length > 0) {\n//   eligible.forEach((e, idx) => {\n//     e.callerPhoneNumberId = callerPhoneNumbers[idx % callerPhoneNumbers.length].vapiPhoneNumberId;\n//   });\n// } else {\n//   eligible.forEach(e => {\n//     e.callerPhoneNumberId = defaultPhoneNumberId;\n//   });\n// }\n\n// return [{ json: { eligible, skipped, currentSlot, config, todayDateStr, hasEligible: eligible.length > 0 } }];"
+      },
+      "id": "ff7f43d2-0393-450e-b222-5382f4423e45",
+      "name": "Filter Eligible Numbers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -656,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.hasEligible }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              },
+              "id": "86c6612e-b551-479a-a822-520175eba9b6"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b2fa8c05-7df6-4e01-aa6c-48d88d2fd818",
+      "name": "Has Eligible Numbers?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -432,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const existingItems = $('Read Numbers Sheet').all();\nconst existingData = existingItems.map(i => i.json);\n\n// If incoming items have Phone Number they are newly appended contacts (true branch)\n// Otherwise it's the pass-through from the If false branch\nconst incomingItems = items.map(i => i.json);\nconst hasNewData = incomingItems.some(i => i['Phone Number'] || i['phoneNumber']);\n\nconst merged = hasNewData\n  ? [...existingData, ...incomingItems]\n  : existingData;\n\nreturn merged.map(d => ({ json: d }));"
+      },
+      "id": "78a6aa4e-0a82-4761-a5fd-c443d8395c31",
+      "name": "Merge Number Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -896,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Each item is one call response from POST /call\n// $input.item has the Vapi call response, Loop Over Calls context has the original lead data\n\nconst callResponse = $input.first().json;\nconst callId = callResponse.id;\nconst leadData = $('Loop Over Calls').first().json; // current loop item (the prepared lead)\nconst currentSlot = leadData.currentSlot;\nconst now = new Date().toISOString();\n\nif (!callId) {\n  throw new Error('No call ID returned from Vapi: ' + JSON.stringify(callResponse));\n}\n\n// Remove leading +\nconst cleanPhone = String(leadData.phone_number || '').replace(/^\\+/, '');\n\nreturn [{\n  json: {\n    'Phone Number':   cleanPhone,\n    phone:            cleanPhone,\n    callId,\n    currentSlotName:  currentSlot.name,\n    newTotalAttempts: (leadData._totalAttempts || 0) + 1,\n    now,\n    Status:           'In Progress',\n\n    '8am-10am':  currentSlot.col === 'D' ? (leadData._slotAttempts || 0) + 1 : '',\n    '10am-12pm': currentSlot.col === 'E' ? (leadData._slotAttempts || 0) + 1 : '',\n    '12pm-2pm':  currentSlot.col === 'F' ? (leadData._slotAttempts || 0) + 1 : '',\n    '2pm-4pm':   currentSlot.col === 'G' ? (leadData._slotAttempts || 0) + 1 : '',\n    '4pm-6pm':   currentSlot.col === 'H' ? (leadData._slotAttempts || 0) + 1 : '',\n\n    'Total Attempts': (leadData._totalAttempts || 0) + 1,\n    'Last Call ID':   callId,\n    'Last Called At': now,\n\n    _rowIndex:       leadData._rowIndex,\n    _totalAttempts:  (leadData._totalAttempts || 0) + 1,\n    _slotAttempts:   leadData._slotAttempts,\n    _slotHeader:     leadData._slotHeader\n  }\n}];"
+      },
+      "id": "0d672c07-9bbf-4eac-8be7-a059fb962617",
+      "name": "Mark Numbers In Progress",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        528,
+        608
+      ],
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "mode": "id",
+          "value": "1vogVrOWPyUQqwsR14qExrOULFmm-sy_-elD3ZNa0h8I"
+        },
+        "sheetName": {
+          "mode": "name",
+          "value": "Call Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Phone Number": "={{ $json[\"Phone Number\"] }}",
+            "phone": "={{ $json.phone }}",
+            "batchId": "={{ $json.batchId }}",
+            "currentSlotName": "={{ $json.currentSlotName }}",
+            "newTotalAttempts": "={{ $json.newTotalAttempts }}",
+            "now": "={{ $json.now }}",
+            "Status": "={{ $json.Status }}",
+            "8am-10am": "={{ $json[\"8am-10am\"] }}",
+            "10am-12pm": "={{ $json[\"10am-12pm\"] }}",
+            "12pm-2pm": "={{ $json[\"12pm-2pm\"] }}",
+            "2pm-4pm": "={{ $json[\"2pm-4pm\"] }}",
+            "4pm-6pm": "={{ $json[\"4pm-6pm\"] }}",
+            "Total Attempts": "={{ $json[\"Total Attempts\"] }}",
+            "Last Call ID": "={{ $json[\"Last Call ID\"] }}",
+            "Last Called At": "={{ $json[\"Last Called At\"] }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Phone Number",
+              "displayName": "Phone Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "batchId",
+              "displayName": "batchId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "currentSlotName",
+              "displayName": "currentSlotName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "newTotalAttempts",
+              "displayName": "newTotalAttempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "now",
+              "displayName": "now",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "8am-10am",
+              "displayName": "8am-10am",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "10am-12pm",
+              "displayName": "10am-12pm",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "12pm-2pm",
+              "displayName": "12pm-2pm",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "2pm-4pm",
+              "displayName": "2pm-4pm",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "4pm-6pm",
+              "displayName": "4pm-6pm",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Total Attempts",
+              "displayName": "Total Attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Call ID",
+              "displayName": "Last Call ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Called At",
+              "displayName": "Last Called At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "57807c27-724a-461a-9d25-902724805df3",
+      "name": "Log to Call Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        800,
+        720
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ofSXLwCeUOtdtlJR",
+          "name": "manymangoes"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.vapi.ai/call",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "authorization",
+              "value": "=Bearer {{ $json.apiKey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"assistantId\": \"{{ $json.assistantId }}\",\n  \"phoneNumberId\": \"{{ $json.phoneNumberId }}\",\n  \"customer\": {\n    \"number\": \"{{ $json.phone_number }}\"\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        320,
+        608
+      ],
+      "id": "d2373ca6-0587-4875-9a10-444748537a8c",
+      "name": "Batch calling",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "url": "=https://api.vapi.ai/call/{{ $('Batch calling').first().json.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "authorization",
+              "value": "=Bearer {{ $('Extract Config Values').first().json.config.apiKey }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1696,
+        592
+      ],
+      "id": "6ce5193a-0609-462a-b121-5ec822898630",
+      "name": "Poll Batch",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pure extraction — classification handled by Classify LLM downstream\n\nreturn items.map(item => {\n  const call = item.json;\n\n  // Duration (seconds)\n  let duration = 0;\n  if (call.startedAt && call.endedAt) {\n    duration = Math.round((new Date(call.endedAt) - new Date(call.startedAt)) / 1000);\n  }\n\n  // Phone (strip + here, re-added in Build Final Result)\n  const phone = String(\n    call.customer?.number ||\n    call.artifact?.variables?.customer?.number ||\n    ''\n  ).replace(/^\\+/, '');\n\n  // Transcript\n  const transcriptText =\n    call.transcript ||\n    call.artifact?.transcript ||\n    '';\n\n  // Recording URLs\n  const recordingUrl =\n    call.recordingUrl ||\n    call.artifact?.recordingUrl ||\n    call.artifact?.recording?.mono?.combinedUrl ||\n    '';\n\n  const stereoRecordingUrl =\n    call.stereoRecordingUrl ||\n    call.artifact?.stereoRecordingUrl ||\n    call.artifact?.recording?.stereoUrl ||\n    '';\n\n  // Vapi signals\n  const endedReason       = call.endedReason || '';\n  const status            = call.status || '';\n  const summary           = call.analysis?.summary || call.summary || '';\n  const successEvaluation = call.analysis?.successEvaluation ?? null;\n  const cost              = call.cost ?? call.costBreakdown?.total ?? '';\n\n  // IDs + timestamps\n  const callId            = call.id || '';\n  const assistantId       = call.assistantId || '';\n  const phoneNumberId     = call.phoneNumberId || '';\n  const phoneCallProvider = call.phoneCallProvider || '';\n  const startedAt         = call.startedAt || '';\n  const endedAt           = call.endedAt   || '';\n  const createdAt         = call.createdAt || '';\n\n  // Assistant name\n  const assistantName =\n    call.artifact?.assistantActivations?.[0]?.assistantName || '';\n\n  // Clean message list (skip system prompts)\n  const rawMessages = call.artifact?.messages || call.messages || [];\n  const messages = rawMessages\n    .filter(m => m.role !== 'system')\n    .map(m => ({\n      role:             m.role === 'bot' ? 'assistant' : m.role,\n      message:          m.message || '',\n      secondsFromStart: m.secondsFromStart ?? null\n    }));\n\n  // Lead context from Mark Numbers In Progress (already incremented +1)\n  const leadContext    = $('Mark Numbers In Progress').first()?.json ?? {};\n  const _rowIndex      = leadContext._rowIndex      ?? null;\n  const totalAttempts  = leadContext._totalAttempts ?? leadContext.newTotalAttempts ?? 1;\n  const _slotAttempts  = leadContext._slotAttempts  ?? 0;\n  const _slotHeader    = leadContext._slotHeader    ?? '';\n  const maxAttempts    = $('Extract Config Values').first().json.config?.maxAttempts ?? 10;\n\n  return {\n    json: {\n      callId,\n      assistantId,\n      assistantName,\n      phoneNumberId,\n      phoneCallProvider,\n      phone,\n      status,\n      endedReason,\n      duration,\n      startedAt,\n      endedAt,\n      createdAt,\n      transcriptText,\n      summary,\n      successEvaluation,\n      messages,\n      recordingUrl,\n      stereoRecordingUrl,\n      cost,\n      _rowIndex,\n      totalAttempts,\n      _slotAttempts,\n      _slotHeader,\n      maxAttempts\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        352
+      ],
+      "id": "99425847-fb64-4e61-9478-ab46e14b02ea",
+      "name": "Format conversation details"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1056,
+        592
+      ],
+      "id": "23c3a5d7-c9ef-4ce7-83fe-44eba3a8a21f",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1vogVrOWPyUQqwsR14qExrOULFmm-sy_-elD3ZNa0h8I",
+          "mode": "id",
+          "cachedResultName": "Vapi Campaign Sheet"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 17002756,
+          "mode": "list",
+          "cachedResultName": "Call Log",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1vogVrOWPyUQqwsR14qExrOULFmm-sy_-elD3ZNa0h8I/edit#gid=17002756"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Phone Number": "={{ $json[\"Phone Number\"] }}",
+            "phone": "={{ $json[\"Phone Number\"] }}",
+            "batchId": "={{ $json.batchId }}",
+            "currentSlotName": "={{ $json.currentSlotName }}",
+            "newTotalAttempts": "={{ $json.newTotalAttempts }}",
+            "now": "={{ $json.now }}",
+            "Status": "={{ $json.Status }}",
+            "8am-10am": "={{ $json[\"8am-10am\"] }}",
+            "10am-12pm": "={{ $json[\"10am-12pm\"] }}",
+            "12pm-2pm": "={{ $json[\"12pm-2pm\"] }}",
+            "2pm-4pm": "={{ $json[\"2pm-4pm\"] }}",
+            "4pm-6pm": "={{ $json[\"4pm-6pm\"] }}",
+            "Total Attempts": "={{ $json[\"Total Attempts\"] }}",
+            "Last Call ID": "={{ $json[\"Last Call ID\"] }}",
+            "Last Called At": "={{ $json[\"Last Called At\"] }}"
+          },
+          "matchingColumns": [
+            "Last Call ID"
+          ],
+          "schema": [
+            {
+              "id": "Phone Number",
+              "displayName": "Phone Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "batchId",
+              "displayName": "batchId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "currentSlotName",
+              "displayName": "currentSlotName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "newTotalAttempts",
+              "displayName": "newTotalAttempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "now",
+              "displayName": "now",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "8am-10am",
+              "displayName": "8am-10am",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "10am-12pm",
+              "displayName": "10am-12pm",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "12pm-2pm",
+              "displayName": "12pm-2pm",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "2pm-4pm",
+              "displayName": "2pm-4pm",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "4pm-6pm",
+              "displayName": "4pm-6pm",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Total Attempts",
+              "displayName": "Total Attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Call ID",
+              "displayName": "Last Call ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Called At",
+              "displayName": "Last Called At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "01609179-f2d1-4aea-95f1-3faf9e261fce",
+      "name": "Append to Call Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3184,
+        576
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ofSXLwCeUOtdtlJR",
+          "name": "manymangoes"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        3488,
+        560
+      ],
+      "id": "4fcf242a-d06e-491f-80bc-881657827f9a",
+      "name": "Merge2"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1vogVrOWPyUQqwsR14qExrOULFmm-sy_-elD3ZNa0h8I",
+          "mode": "id",
+          "cachedResultName": "Vapi Campaign Sheet"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2141969193,
+          "mode": "list",
+          "cachedResultName": "Numbers",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1vogVrOWPyUQqwsR14qExrOULFmm-sy_-elD3ZNa0h8I/edit#gid=2141969193"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Phone Number": "={{ $json[\"Phone Number\"] }}",
+            "Status": "={{ $json.Status }}",
+            "Answered In Slot": "={{ $json[\"Answered In Slot\"] }}",
+            "8am-10am": "={{ $json[\"8am-10am\"] }}",
+            "10am-12pm": "={{ $json[\"10am-12pm\"] }}",
+            "12pm-2pm": "={{ $json[\"12pm-2pm\"] }}",
+            "2pm-4pm": "={{ $json[\"2pm-4pm\"] }}",
+            "4pm-6pm": "={{ $json[\"4pm-6pm\"] }}",
+            "Total Attempts": "={{ $json[\"Total Attempts\"] }}",
+            "Last Call ID": "={{ $json[\"Last Call ID\"] }}",
+            "Last Duration (s)": "={{ $json[\"Last Duration (s)\"] }}",
+            "Last Transcript": "={{ $json[\"Last Transcript\"] }}",
+            "Last Classification": "={{ $json[\"Last Classification\"] }}",
+            "Last Called At": "={{ $json[\"Last Called At\"] }}",
+            "Recording URL": "={{ $json[\"Recording URL\"] }}",
+            "Answered At": "={{ $json[\"Answered At\"] }}"
+          },
+          "matchingColumns": [
+            "Last Call ID"
+          ],
+          "schema": [
+            {
+              "id": "Phone Number",
+              "displayName": "Phone Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Answered In Slot",
+              "displayName": "Answered In Slot",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "8am-10am",
+              "displayName": "8am-10am",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "10am-12pm",
+              "displayName": "10am-12pm",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "12pm-2pm",
+              "displayName": "12pm-2pm",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "2pm-4pm",
+              "displayName": "2pm-4pm",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "4pm-6pm",
+              "displayName": "4pm-6pm",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Total Attempts",
+              "displayName": "Total Attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Call ID",
+              "displayName": "Last Call ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Duration (s)",
+              "displayName": "Last Duration (s)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Transcript",
+              "displayName": "Last Transcript",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Classification",
+              "displayName": "Last Classification",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Called At",
+              "displayName": "Last Called At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Recording URL",
+              "displayName": "Recording URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Answered At",
+              "displayName": "Answered At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3184,
+        352
+      ],
+      "id": "11c7d5d2-bfa9-4ea8-9265-70e5e042c8d2",
+      "name": "Write Results to Numbers Sheet1",
+      "alwaysOutputData": false,
+      "retryOnFail": true,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ofSXLwCeUOtdtlJR",
+          "name": "manymangoes"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1vogVrOWPyUQqwsR14qExrOULFmm-sy_-elD3ZNa0h8I",
+          "mode": "id",
+          "cachedResultName": "Vapi Campaign Sheet"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2141969193,
+          "mode": "list",
+          "cachedResultName": "Numbers",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1vogVrOWPyUQqwsR14qExrOULFmm-sy_-elD3ZNa0h8I/edit#gid=2141969193"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Phone Number": "={{ $json[\"Phone Number\"] }}",
+            "Status": "={{ $json.Status }}",
+            "8am-10am": "={{ $json['8am-10am'] }}",
+            "10am-12pm": "={{ $json['10am-12pm'] }}",
+            "12pm-2pm": "={{ $json['12pm-2pm'] }}",
+            "2pm-4pm": "={{ $json['2pm-4pm'] }}",
+            "4pm-6pm": "={{ $json['4pm-6pm'] }}",
+            "Total Attempts": "={{ $json['Total Attempts'] }}",
+            "Last Call ID": "={{ $json['Last Call ID'] }}",
+            "Last Called At": "={{ $json['Last Called At'] }}"
+          },
+          "matchingColumns": [
+            "Phone Number"
+          ],
+          "schema": [
+            {
+              "id": "Phone Number",
+              "displayName": "Phone Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Answered In Slot",
+              "displayName": "Answered In Slot",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "8am-10am",
+              "displayName": "8am-10am",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "10am-12pm",
+              "displayName": "10am-12pm",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "12pm-2pm",
+              "displayName": "12pm-2pm",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "2pm-4pm",
+              "displayName": "2pm-4pm",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "4pm-6pm",
+              "displayName": "4pm-6pm",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Total Attempts",
+              "displayName": "Total Attempts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Call ID",
+              "displayName": "Last Call ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Duration (s)",
+              "displayName": "Last Duration (s)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Transcript",
+              "displayName": "Last Transcript",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Classification",
+              "displayName": "Last Classification",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Called At",
+              "displayName": "Last Called At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Recording URL",
+              "displayName": "Recording URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Answered At",
+              "displayName": "Answered At",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        800,
+        496
+      ],
+      "id": "bbac69d5-f5c6-485e-ac73-37fe25a317f4",
+      "name": "Update Numbers Sheet Status",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ofSXLwCeUOtdtlJR",
+          "name": "manymangoes"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const configData = $('Extract Config Values').first().json;\nconst { config, areaCodeMap, defaultPhoneNumberId } = configData;\nconst { eligible, currentSlot } = $('Filter Eligible Numbers').first().json;\n\n// Area code match: strip non-digits, skip country code if 11 digits\nfunction getPhoneNumberId(phone) {\n  const digits = String(phone).replace(/\\D/g, '');\n  const areaCode = digits.length === 11 ? digits.substring(1, 4) : digits.substring(0, 3);\n  return areaCodeMap[areaCode] || defaultPhoneNumberId;\n}\n\n// Ensure E.164 format\nfunction toE164(phone) {\n  const s = String(phone).trim();\n  return s.startsWith('+') ? s : '+' + s;\n}\n\nreturn eligible.map(e => ({\n  json: {\n    phone_number:   toE164(e.phone_number),\n    phoneNumberId:  getPhoneNumberId(e.phone_number),\n    assistantId:    config.assistantId,\n    apiKey:         config.apiKey,\n    maxDuration:    config.maxDuration,\n    _rowIndex:      e._rowIndex,\n    _totalAttempts: e._totalAttempts,\n    _slotAttempts:  e._slotAttempts,\n    _slotHeader:    e._slotHeader,\n    currentSlot\n  }\n}));"
+      },
+      "id": "30d4f06e-de71-4ee2-95c9-fd137ea8fe16",
+      "name": "Prepare Individual Calls",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -176,
+        592
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "e4b77f05-41a3-4751-8f43-a0fe23ae63ad",
+      "name": "Loop Over Calls",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        32,
+        592
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "9866571c-cfce-4f84-a3bd-09013f42a4b8",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "ended",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d2b7f14c-d0e0-49af-b619-7356f82780f7",
+      "name": "Poll Completed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1904,
+        592
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 30
+      },
+      "id": "3b202186-3a44-47e4-a2f9-24a03a80a81f",
+      "name": "Wait 10 More Seconds",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2160,
+        608
+      ],
+      "webhookId": "4ac73b09-5c15-444f-8f51-28964ca2da31"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Take only the first item from poll response\nreturn [items[0]];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1456,
+        592
+      ],
+      "id": "e6223bf1-fec4-49f5-857c-1abc9bea1bd1",
+      "name": "Collapse to one1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Reads structured classification from Basic LLM Chain + Structured Output Parser\n// All other data pulled from Format conversation details\nconst formatted   = $('Format conversation details').item.json;\nconst currentSlot = $('Filter Eligible Numbers').first().json.currentSlot;\nconst now         = new Date().toISOString();\n// Structured Output Parser guarantees { classification: \"...\" }\nconst classification = $input.item.json?.output?.classification || $input.item.json?.classification || 'No Answer';\nconst totalAttempts = formatted.totalAttempts;\nconst maxAttempts   = formatted.maxAttempts;\nconst slotName      = currentSlot ? currentSlot.name : '8am-10am';\nconst slotCol       = currentSlot ? currentSlot.col  : 'D';\nconst phone         = formatted.phone ? (formatted.phone.startsWith('+') ? formatted.phone : '+' + formatted.phone) : '';\nconst isHuman       = classification === 'Human Answered';\n// Final Status\n// Human Answered  -> done, stop calling\n// IVR             -> Dead (automated system, no human ever)\n// Call Screening  -> Retry (real person behind the screen)\n// Voicemail       -> Retry until maxAttempts then Dead\n// No Answer       -> Retry until maxAttempts then Dead\nlet finalStatus;\nif (isHuman) {\n  finalStatus = 'Human Answered';\n} else if (classification === 'IVR') {\n  finalStatus = 'Dead';\n} else if (totalAttempts >= maxAttempts) {\n  finalStatus = 'Dead';\n} else {\n  finalStatus = 'Retry';\n}\n// Slot attempt columns — only the active slot gets a value\nconst slot8to10  = slotCol === 'D' ? totalAttempts : '';\nconst slot10to12 = slotCol === 'E' ? totalAttempts : '';\nconst slot12to2  = slotCol === 'F' ? totalAttempts : '';\nconst slot2to4   = slotCol === 'G' ? totalAttempts : '';\nconst slot4to6   = slotCol === 'H' ? totalAttempts : '';\nreturn {\n  json: {\n    // Numbers sheet columns\n    'Phone Number':        phone,\n    'Status':              finalStatus,\n    'Answered In Slot':    isHuman ? slotName : '',\n    '8am-10am':            slot8to10,\n    '10am-12pm':           slot10to12,\n    '12pm-2pm':            slot12to2,\n    '2pm-4pm':             slot2to4,\n    '4pm-6pm':             slot4to6,\n    'Total Attempts':      totalAttempts,\n    'Last Call ID':        formatted.callId,\n    'Last Duration (s)':   formatted.duration,\n    'Last Transcript':     formatted.transcriptText,\n    'Last Classification': classification,\n    'Last Called At':      formatted.startedAt || now,\n    'Recording URL':       formatted.recordingUrl,\n    'Answered At':         isHuman ? now : '',\n    // Call Log sheet columns\n    phone,\n    batchId:          '',\n    currentSlotName:  slotName,\n    newTotalAttempts: totalAttempts,\n    now,\n    // Pass-through for downstream\n    classification,\n    finalStatus,\n    isHuman,\n    slotName,\n    totalAttempts,\n    recordingUrl:  formatted.recordingUrl,\n    endedReason:   formatted.endedReason,\n    duration:      formatted.duration,\n    transcript:    formatted.transcriptText\n  }\n};"
+      },
+      "id": "31c7bf14-31e8-4fa8-ba65-0179722e2595",
+      "name": "Build Final Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2704,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 1,
+        "unit": "minutes"
+      },
+      "id": "a79bd961-dd41-405a-907d-4396e78c6dc1",
+      "name": "Wait 1 Min For call",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1248,
+        592
+      ],
+      "webhookId": "d72a9652-4993-4935-80c8-068a713d1caf"
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2944,
+        576
+      ],
+      "id": "376917c1-5bc3-475f-83e8-70b2f4acf461",
+      "name": "Wait",
+      "webhookId": "1ebe6df4-5b55-4ec3-ac24-334f3a1baf66"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a call classification engine. An AI assistant called a phone number and the transcript below was captured via speech-to-text. Classify the call as EXACTLY one of these four values: - Human Answered - Voicemail - Call Screening - IVR DEFINITIONS: Human Answered A real live person picked up and spoke. Includes: hello, hi, yeah, who is this, I'm here, yes, speaking, any natural conversational response. If a real person is on the line — even briefly — it is Human Answered. Voicemail The call reached a voicemail box. Includes: - Personal outgoing greetings (\"Hi this is John, I can't take your call, please leave a message\") - Carrier/automated prompts (\"The person you are trying to reach is not available. At the tone please record your message\") - Reading back a phone number then asking to leave a message (automated voice messaging systems) - Phrases like: leave a message, leave your name and number, at the tone, after the beep, voice mail, voice messaging system, can't take your call, not available to take your call, I'm unavailable, sorry I missed your call, mailbox - Uninitialized voicemail: \"the person you called has a voice mailbox that hasn't been set up yet\" NOTE: Speech-to-text mangles words. \"Automated\" may appear as \"Mated\" or \"tomated\". \"Powered by Google\" may appear as \"Polysis by Google\". Read for meaning, not exact words. Call Screening A service or person screening the call before connecting. Includes: - Google/iPhone call screening: \"recording this call\", \"I'll see if this person is available\", \"can I ask what you're calling about\" - Human screener: \"who is calling\", \"may I ask who is calling\", \"what is this regarding\" IVR A fully automated phone system with no human involved. Includes: - Business/school phone menus: \"press 1 for sales\", \"if you know your party's extension\", \"dial it at any time\" - Carrier intercepts reading back digits: \"seven three two is not available\" (the number itself being read aloud as a carrier message) - Disconnected/invalid numbers: \"the number you have dialed\", \"not in service\", \"this number has been disconnected\" CONTEXT SIGNALS: endedReason: {{ $json.endedReason }} Call duration (seconds): {{ $json.duration }} TRANSCRIPT: {{ $json.transcriptText }}",
+        "hasOutputParser": true,
+        "batching": {}
+      },
+      "id": "6d7be627-b12e-4158-8bfe-7614862f4e4c",
+      "name": "Basic LLM Chain",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        2400,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"classification\": \"Human Answered\"\n}"
+      },
+      "id": "00b7443a-1397-4337-990b-8d836ccac9d9",
+      "name": "Structured Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        2544,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        2400,
+        560
+      ],
+      "id": "32ae42e7-ac27-4eef-9682-34441c454248",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "ADBOpsreUXGHfz40",
+          "name": "OpenAi account 8"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Config": {
+      "main": [
+        [
+          {
+            "node": "Extract Config Values",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Config Values": {
+      "main": [
+        [
+          {
+            "node": "Within Calling Hours?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Within Calling Hours?": {
+      "main": [
+        [
+          {
+            "node": "Read Numbers Sheet",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read ManyMangos Pick",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Numbers Sheet": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Read ManyMangos Pick": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync New Numbers": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split New Contacts": {
+      "main": [
+        [
+          {
+            "node": "Append to Numbers Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append to Numbers Sheet": {
+      "main": [
+        [
+          {
+            "node": "Merge Number Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Split New Contacts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge Number Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Sync New Numbers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Eligible Numbers": {
+      "main": [
+        [
+          {
+            "node": "Has Eligible Numbers?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Eligible Numbers?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Individual Calls",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Number Data": {
+      "main": [
+        [
+          {
+            "node": "Filter Eligible Numbers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Numbers In Progress": {
+      "main": [
+        [
+          {
+            "node": "Update Numbers Sheet Status",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log to Call Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Call Log": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Batch calling": {
+      "main": [
+        [
+          {
+            "node": "Mark Numbers In Progress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poll Batch": {
+      "main": [
+        [
+          {
+            "node": "Poll Completed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format conversation details": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Wait 1 Min For call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append to Call Log": {
+      "main": [
+        [
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge2": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Calls",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Results to Numbers Sheet1": {
+      "main": [
+        [
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Numbers Sheet Status": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Individual Calls": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Calls",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Calls": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Batch calling",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poll Completed?": {
+      "main": [
+        [
+          {
+            "node": "Format conversation details",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 10 More Seconds",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 10 More Seconds": {
+      "main": [
+        [
+          {
+            "node": "Poll Batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collapse to one1": {
+      "main": [
+        [
+          {
+            "node": "Poll Batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Final Result": {
+      "main": [
+        [
+          {
+            "node": "Write Results to Numbers Sheet1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 1 Min For call": {
+      "main": [
+        [
+          {
+            "node": "Collapse to one1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Append to Call Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Build Final Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b7ff1e69201968833d88d7592a2d50b06ea8540a200afa0538e34cf1a57976ac"
+  }
+}
